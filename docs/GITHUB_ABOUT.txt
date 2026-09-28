@@ -6,13 +6,8 @@ combustion. Ambient-diabatic, low-temperature adiabatic and heat-and-power
 plants on one real-fluid, per-kg-air basis, with closed exergy books and a map
 of the constraint that binds. (260 characters)
 
-LT-CAES branch description
---------------------------
-
-LT-CAES: the low-temperature adiabatic family alone (LTA and LTAHP), cut from
-main onto its own branch. One plant, two uses of the stored heat - back into
-the turbines (LTA), or sold to a heat user (LTAHP); the diabatic concept and
-the mode axis are removed from that line. (273 characters)
+One line of development: main carries all three concepts (AD, LTA, LTAHP).
+The former adiabatic-only branch is archived as the tag archive/lt-caes.
 
 GitHub topics
 -------------
