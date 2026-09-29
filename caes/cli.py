@@ -51,7 +51,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{'ACTIVE ' if name in active else 'dormant'}  {name}: {rule.help or rule.label}")
         print()
     result = CAESPlant(config, property_api=args.property_api).run()
-    print(summary(result))
+    print(summary(result, config))
     if args.plot:
         print(f"Saved plot: {save_thermodynamic_plots(result, args.plot)}")
     if args.sankey:

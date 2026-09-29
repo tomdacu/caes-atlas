@@ -93,7 +93,8 @@ Several first-principle relations remove numerical degrees of freedom:
   root disappears there;
 - a closed first-law identity,
   `W_exp + Q_user = W_comp + Q_amb + (h0 - h_exh) - Q_ac - L_tank`, explains
-  every delivery ratio below one (aftercooler rejection) and shows that the
+  every delivery ratio below one (aftercooler rejection in the former model;
+  tank losses and a warm winter exhaust now) and shows that the
   user temperatures enter the delivery ratio only through feasibility.
 
 Other unknowns cannot yet be removed honestly. Finite-NTU effectiveness depends
@@ -105,6 +106,14 @@ depends on the hot store, E-303 and dwell couple the return to the next
 charge, and the cold-loop closure stays a genuine root.
 
 ## Measured sensitivity of the delivery ratio J (LTAHP)
+
+> **Cavern assumption.** The numbers in this section were computed with the
+> former model, which cooled the stored air to the ambient temperature
+> before storage, so `Q_ac` was the heat of the last intercooler's outlet.
+> The cavern now exchanges no net heat
+> ([document 02](02_PHYSICS_AND_MODEL_BOUNDARY.md#the-cavern)) and the
+> aftercooler works only when the last intercooler cannot hold the injection
+> limit, so `Q_ac` is usually zero.
 
 One parameter at a time from the reference plant (85.8 bar, 6+6 stages,
 efficiencies 0.85, NTU 5, 80/45 °C user, 15 °C ambient), each point solved to

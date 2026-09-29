@@ -116,7 +116,7 @@ as a positive product.
 | F-101 | inlet filter and silencer |
 | K-10x | compressor bodies |
 | E-10x | charging intercoolers; the last one is the final cooler |
-| AC-101 | final charge aftercooler, i.e. the cavern equilibration state |
+| AC-101 | final charge aftercooler: to ambient in the electricity-first design point; in heat-user plants only when the last intercooler cannot hold the 50 °C injection limit; none in the diabatic plant |
 | M-101 / W-101 | compressor motor / grid import tie |
 | V-401 | compressed-air cavern |
 | XV-401 / XV-402 | charge and discharge wellhead block valves |

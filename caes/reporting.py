@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .config import PlantConfig
 from .models import PlantResult
 from .nomenclature import plant_concept_label
 from .moisture import (
@@ -157,8 +158,8 @@ def _moisture_rows(result: PlantResult) -> list[tuple[str, str]]:
             "Worst case if every remaining gram condenses",
             f"{worst_liquid_fraction:.4%} by mass (published reference discharge "
             f"capacity {REFERENCE_WET_EXPANDER_MAX_DISCHARGE_LIQUID_MASS_FRACTION:.0%}; "
-            f"dry-air model validity cap "
-            f"{DRY_AIR_MODEL_MAX_POSSIBLE_LIQUID_MASS_FRACTION:.1%})",
+            f"above {DRY_AIR_MODEL_MAX_POSSIBLE_LIQUID_MASS_FRACTION:.1%} the dry-air "
+            f"model's neglect of latent heat is no longer negligible)",
         ),
     ]
     for process in result.discharging.processes:
@@ -257,7 +258,9 @@ def _offtake_rows(result: PlantResult) -> list[tuple[str, str]]:
     ]
 
 
-def summary_rows(result: PlantResult) -> list[tuple[str, str]]:
+def summary_rows(
+    result: PlantResult, config: PlantConfig | None = None
+) -> list[tuple[str, str]]:
     """Every scalar of ``result`` as one ``(metric, value)`` pair.
 
     THE formatter for plant output. :func:`summary` renders these rows as the
@@ -328,6 +331,10 @@ def summary_rows(result: PlantResult) -> list[tuple[str, str]]:
     if throttling > 0.0:
         rows.append(("Anti-icing throttling exergy destruction", _kj(throttling)))
 
+    rows.append((
+        "Stored air (cavern exchanges no net heat)",
+        f"{result.discharging.inlet.temperature_k - 273.15:.1f} °C",
+    ))
     if result.thermal_store is not None:
         rows.extend(_store_rows(result))
     if result.moisture is not None:
@@ -394,10 +401,10 @@ def _extraction_table(result: PlantResult) -> list[str]:
     return lines
 
 
-def summary(result: PlantResult) -> str:
+def summary(result: PlantResult, config: PlantConfig | None = None) -> str:
     """The CLI text report: the shared rows, then the E-304 ladder table."""
 
-    lines = [f"{label}: {value}" for label, value in summary_rows(result)]
+    lines = [f"{label}: {value}" for label, value in summary_rows(result, config)]
     if result.extraction_exchanger is not None:
         lines.extend(_extraction_table(result))
     return "\n".join(lines)

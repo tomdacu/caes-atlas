@@ -36,6 +36,9 @@ def test_balanced_m0_predictor_closes_at_ambient(stages):
 ])
 def test_reduced_warm_branch_needs_one_charge_not_a_temperature_grid(override, inventory):
     plant = CAESPlant(replace(PlantConfig(), **override))
+    # The coupled cold-loop solver is the electricity-first path, whose design
+    # point still cools the air to ambient before the cavern.
+    plant._aftercool_to_ambient = True
     with patch.object(plant, "_charge_adiabatic", wraps=plant._charge_adiabatic) as charge:
         result = plant._recover_cold_loop(inventory)
     assert charge.call_count == 1

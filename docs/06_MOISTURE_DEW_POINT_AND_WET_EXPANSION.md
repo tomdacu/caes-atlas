@@ -113,8 +113,9 @@ Hyland-Wexler-type data before any detailed design.
 
 ## 3. What the model calculates and its validity screens
 
-Every charging intercooler and the final aftercooler are modelled as a cooler
-followed by an ideal liquid separator:
+Every charging intercooler (and the final aftercooler, which only the
+electricity-first design point still has) is modelled as a cooler followed by
+an ideal liquid separator:
 
 ```text
 compressor -> cooler -> knock-out/demister -> drain -> next body or cavern
@@ -131,9 +132,11 @@ destruction.
 
 Two different approximation checks must remain distinct:
 
-- The **discharge-side** maximum-possible-condensate screen is 0.1 wt% of the
-  wet stream. At that bound, latent energy is about 2.5 kJ/kg-stream, below 1%
-  of the 300 kJ/kg per-stage reference enthalpy-drop envelope. At the default
+- The **discharge-side** maximum-possible-condensate level of 0.1 wt% of the
+  wet stream is where the dry-air approximation stops being accurate: latent
+  energy is then about 2.5 kJ/kg-stream, below 1% of the 300 kJ/kg per-stage
+  reference enthalpy-drop envelope. It is reported, not enforced (since
+  2026-09-29): the plant is limited by the expander's liquid capacity below. At the default
   0.010610 wt%, the omitted discharge latent term is about 0.27 kJ/kg-air.
 - The **charge-side** condensation omission is not bounded by that screen. The
   default separators remove 6.2402 g/kg-dry-air, corresponding to about
@@ -145,9 +148,9 @@ publishes up to 250 bar inlet pressure, -270 to +270 degC, 300 kJ/kg enthalpy
 drop per stage, 1 wt% liquid at suction, and 35 wt% at discharge for its
 [turboexpander-compressor family](https://www.bakerhughes.com/expanders/turboexpander-compressors).
 The model assumes a wellhead separator and checks the conservative bound
-`y_liquid,max = w/(1+w)` against the discharge reference. The 0.1 wt% dry-air
-screen binds orders of magnitude earlier, so the 35 wt% check does not control
-current accepted cases. Neither value replaces an OEM guarantee for droplet
+`y_liquid,max = w/(1+w)` against the discharge reference; that is the
+enforced limit. Saturated stored air at 60 °C and 100 bar gives about 0.2 wt%,
+so it does not bind in practice. Neither value replaces an OEM guarantee for droplet
 size, distribution, tip speed, erosion life, drains, off-design operation, or
 slug volume. Atlas Copco lists CAES applications and API 617 / ASME PTC-10 Type
 2 design/test bases in its

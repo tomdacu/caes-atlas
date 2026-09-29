@@ -25,10 +25,12 @@ are derived from their combination.
 The application opens with, and "Reset defaults" restores, the **reference
 plant** `caes.presets.REALISTIC_REFERENCE`: a large (tens of MW) plant with
 typical published component values and a few marked design choices. It has a
-100 bar salt cavern, eight integrally geared compression and eight expansion
-stages at 0.86 / 0.85 isentropic efficiency, 1.5 % pressure drop per
-exchanger, air/water exchangers of NTU 3.4, a water-glycol loop limited to
--25/150 °C and an 80/40 °C district-heating user at a 10 °C, 80 % RH site. The command line uses it when no `--config` is
+100 bar salt cavern that exchanges no net heat (air injected at up to
+50 °C), eight integrally geared
+compression and eight expansion stages at 0.86 / 0.85 isentropic efficiency,
+1.5 % pressure drop per exchanger, air/water exchangers of NTU 3.4, a
+coolant loop limited to -40/150 °C (fluid not yet chosen) and an 80/40 °C district-heating user
+at a 10 °C, 80 % RH site. The command line uses it when no `--config` is
 given, and `--write-default-config` writes it. Every value and its source is
 in [document 17](17_REALISTIC_REFERENCE_PARAMETERS.md).
 
@@ -100,7 +102,8 @@ and cost belong to a later equipment-sizing layer.
 
 The removed `minimum_expander_outlet_temperature_c` and all fuel inputs are not
 part of the schema. The expander limit is derived at every pressure from the
-final-aftercooler vapour ratio:
+vapour ratio of the stored air, as the last charge cooler's separator leaves
+it:
 
 ```text
 T_hard(p) = 0 degC       when the local phase boundary permits liquid
@@ -110,8 +113,9 @@ T_out,min(p) = T_hard(p) + 10 K
 
 AD-CAES takes the maximum safe turbine pressure drop and throttles the
 remainder. LTA/LTAHP supplies stage-specific coolant duty; LTAHP sells the top of
-the trunk through E-302 and then stages the rest to the interheaters in E-304. The 0.1 wt% possible-condensate
-screen protects only the discharge-side dry-air approximation. See
+the trunk through E-302 and then stages the rest to the interheaters in E-304. The stored humidity is limited
+by the expander's published liquid capacity; above 0.1 wt% possible condensate
+the report notes that the dry-air approximation loses accuracy. See
 [Moisture, dew point, and wet expansion](06_MOISTURE_DEW_POINT_AND_WET_EXPANSION.md).
 
 `coolant_maximum_temperature_c` and `coolant_minimum_temperature_c` are direct

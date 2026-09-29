@@ -41,13 +41,12 @@ REALISTIC_REFERENCE = PlantConfig(
     # Design choice: air/water stage exchangers at NTU 3.4, the top of the six
     # published A-CAES design points (2.83-3.41, Barbour et al. 2025).
     heat_exchanger_ntu=3.4,
-    # Water-glycol loop (about 40 % glycol). With these machines the tail
-    # interheater returns leave below 0 °C, which pure water cannot take (no
-    # feasible design with water, 6+6 or 8+8). The coldest return reaches
-    # -11.3 °C; -25 °C keeps the freezing point 14 K clear of it. The glycol
-    # caps the hot side at about 150 °C, which this plant does not reach.
+    # Coolant not yet chosen (water-glycol, brine, a low-temperature heat
+    # transfer fluid...): the limits are set wide so that they screen only the
+    # physics, not a fluid. Water heat capacity is used throughout. In the
+    # reference case the coolant stays between +5 and 86 °C.
     coolant_maximum_temperature_c=150.0,
-    coolant_minimum_temperature_c=-25.0,
+    coolant_minimum_temperature_c=-40.0,
     # Dry cooler at a typical 5-9 K approach to ambient (IEA SHC Task 38).
     cold_return_cooler_ntu=0.8,
     optimization_objective=OptimizationObjective.MAX_COMBINED_ENERGY_DELIVERY,

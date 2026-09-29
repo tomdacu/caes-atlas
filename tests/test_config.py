@@ -140,3 +140,4 @@ def test_removed_exergy_objective_maps_to_the_concept_objective_with_a_warning()
     assert dh_config.optimization_objective is (
         OptimizationObjective.MAX_COMBINED_ENERGY_DELIVERY
     )
+

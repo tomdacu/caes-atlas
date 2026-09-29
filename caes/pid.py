@@ -1083,7 +1083,7 @@ def _draw_air_lines(ax, diagram: Diagram, fs: float):
         if i < len(comps) - 1:
             nxt_in, _ = _mach_air(comps[i + 1])
             _elbow(ax, c_r, nxt_in, AIR)
-    # aftercooler -> down the well into the cavern
+    # last intercooler -> down the well into the cavern (no aftercooler)
     _, last_r = _hx_air(coolers[-1])
     _pipe(ax, [last_r, (x_cav + 1.4, last_r[1]), (x_cav + 1.4, diagram.bands.cavern + 1.4)], AIR, arrow_at=0.6)
 

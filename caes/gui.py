@@ -572,7 +572,7 @@ class CAESGUI(tk.Tk):
                     self._update_kpis()
                     self._draw_pid(config, result)
                     self._draw_thermodynamic_diagrams(result)
-                    self._populate_tables(result)
+                    self._populate_tables(result, config)
                     self._status.set(
                         f"Complete: {plant_concept_label(result.mode, exports_heat=result.heat_offtake is not None)}, "
                         f"RTE={result.round_trip_efficiency:.2%}"
@@ -730,14 +730,14 @@ class CAESGUI(tk.Tk):
         self._hx_canvas.draw_idle()
 
 
-    def _populate_tables(self, result: PlantResult) -> None:
+    def _populate_tables(self, result: PlantResult, config: PlantConfig | None = None) -> None:
         self._populate_processes(self._charge_table, result.charging.processes)
         self._populate_processes(self._discharge_table, result.discharging.processes)
         tree = self._summary_table
         for item in tree.get_children():
             tree.delete(item)
         # One formatter for plant output: the CLI report prints these same rows.
-        for metric, value in summary_rows(result):
+        for metric, value in summary_rows(result, config):
             tree.insert("", "end", values=(metric, value))
 
     def _populate_processes(self, tree: ttk.Treeview, processes: list[Process]) -> None:

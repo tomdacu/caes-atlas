@@ -63,7 +63,8 @@ REFERENCE_WET_EXPANDER_MAX_DISCHARGE_LIQUID_MASS_FRACTION = 0.35
 # The reference family also publishes 300 kJ/kg as its maximum enthalpy drop
 # per stage.  Limiting unmodelled condensate to 0.1 wt% caps its approximately
 # 2.5 MJ/kg latent term near 2.5 kJ/kg-stream, below 1% of that published stage
-# envelope.  This is a model-validity screen, not an OEM hardware limit.
+# envelope.  This is a model-accuracy note, not an OEM hardware limit: it is
+# reported, not enforced; the plant is limited by the hardware envelope above.
 DRY_AIR_MODEL_MAX_POSSIBLE_LIQUID_MASS_FRACTION = 0.001
 
 

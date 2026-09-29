@@ -65,7 +65,7 @@ electricity *not returned* buy?
 **Identity 1, the first law over the whole plant.** With `Q_amb` the heat the
 plant takes from the atmosphere through its coolant, `h_in - h_ex` the
 enthalpy by which the exhaust leaves colder than the intake, `Q_ac` the heat
-lost when the compressed air cools to ambient in storage, and `L` the tank
+taken from the air before the cavern (zero unless the aftercooler is needed), and `L` the tank
 standing losses,
 
 ```text
@@ -115,6 +115,14 @@ These bounds are loose for CAES on purpose: they say what physics forbids,
 not what this machine can do.
 
 ## 4. What this architecture reaches with ideal components
+
+> **Cavern assumption.** The numbers in this section were computed with the
+> former model, which cooled the stored air to the ambient temperature
+> before storage, so `Q_ac` was the heat of the last intercooler's outlet.
+> The cavern now exchanges no net heat
+> ([document 02](02_PHYSICS_AND_MODEL_BOUNDARY.md#the-cavern)) and the
+> aftercooler works only when the last intercooler cannot hold the injection
+> limit, so `Q_ac` is usually zero.
 
 Ideal here means isentropic machines, no pressure drops, exchangers of NTU 200
 (E-303 and the user exchanger 50), no tank losses. Everything else is the

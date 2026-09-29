@@ -87,6 +87,12 @@ class PlantConfig:
     ambient_relative_humidity: float = 0.60
     # Six nominal 2.1 pressure-ratio stages: 2.1**6 = 85.766... bar.
     storage_pressure_bar: float = 85.8
+    # The cavern exchanges no net heat with the air: in cyclic operation its
+    # wall settles to the injection temperature, so the stored air is the air
+    # that left the last intercooler (docs/02, "The cavern"). Only its
+    # injection is limited: warmer air is first cooled to this temperature
+    # against the atmosphere (Huntorf injects at up to 50 °C).
+    maximum_injection_temperature_c: float = 50.0
 
     # Turbomachinery.
     compressor_stages: int = 6
@@ -202,6 +208,7 @@ class PlantConfig:
         # below absolute zero is meaningless regardless of any other field.
         for name in (
             "ambient_temperature_c",
+            "maximum_injection_temperature_c",
             "heat_user_supply_temperature_c",
             "heat_user_return_temperature_c",
             "coolant_maximum_temperature_c",
@@ -218,6 +225,11 @@ class PlantConfig:
                 "moisture correlations "
                 f"({MINIMUM_FROST_CORRELATION_TEMPERATURE_K:.0f} K)"
             )
+        if self.maximum_injection_temperature_c <= self.ambient_temperature_c:
+            raise ValueError(
+                "maximum_injection_temperature_c must exceed the ambient "
+                "temperature: the aftercooler rejects to the atmosphere"
+            )
         # A network cannot return coolant hotter than it supplies it.
         if self.heat_user_return_temperature_c >= self.heat_user_supply_temperature_c:
             raise ValueError(
@@ -232,6 +244,11 @@ class PlantConfig:
     @property
     def ambient_temperature_k(self) -> float:
         return self.ambient_temperature_c + 273.15
+
+
+    @property
+    def maximum_injection_temperature_k(self) -> float:
+        return self.maximum_injection_temperature_c + 273.15
 
     @property
     def heat_user_supply_temperature_k(self) -> float:

@@ -46,13 +46,14 @@ design,
 
 ```text
 J = (W_exp + Q_user) / W_comp
-  = 1 + (Q_ambient + (h_intake - h_exhaust) - Q_aftercooling - L_storage) / W_comp
+  = 1 + (Q_ambient + (h_intake - h_exhaust) - Q_aftercooler - L_storage) / W_comp
 ```
 
 `J` exceeds unity only by the ambient energy the plant draws in: sub-ambient
 coolant returns warmed by the atmosphere, and an exhaust colder than the
-intake. It falls below unity through the heat rejected when the compressed air
-cools to ambient in storage.
+intake. It falls below unity through tank losses, an exhaust warmer than the
+intake (on cold days), or an aftercooler, which works only when the last
+intercooler cannot hold the cavern's injection limit.
 
 **3. The three figures of merit are linked.** With `theta` the Carnot factor of
 the user's thermodynamic mean temperature,
@@ -87,27 +88,29 @@ ambient-energy harvest
 The application starts from a large (tens of MW) plant built from
 commercially available machinery, with typical published component values
 ([sources](docs/17_REALISTIC_REFERENCE_PARAMETERS.md)): a 100 bar salt
-cavern, eight integrally geared compression and eight expansion stages at
-0.86 / 0.85 isentropic efficiency, 1.5 % pressure loss per exchanger,
-air/water exchangers of NTU 3.4 (the top of published designs), a water-glycol
-store and an 80/40 °C district-heating user at a North-German site.
+cavern that exchanges no net heat with the air, eight integrally geared
+compression and eight expansion stages at 0.86 / 0.85 isentropic efficiency,
+1.5 % pressure loss per exchanger, air/water exchangers of NTU 3.4 (the top of
+published designs), a two-tank liquid store and an 80/40 °C
+district-heating user at a North-German site.
 
 | quantity | per kg of air |
 |---|---:|
-| compression work | 543.9 kJ |
-| expansion work | 304.9 kJ |
-| heat delivered to the user | 261.4 kJ |
-| ambient heat drawn in | 30.9 kJ |
-| electrical round-trip efficiency | 56.1 % |
-| useful-energy delivery ratio `J` | 104.1 % |
-| useful-exergy efficiency | 63.2 % |
-| cold / hot store | 36 °C / 86 °C |
+| compression work | 539.7 kJ |
+| expansion work | 320.9 kJ |
+| heat delivered to the user | 235.2 kJ |
+| electrical round-trip efficiency | 59.5 % |
+| useful-energy delivery ratio `J` | 103.0 % |
+| useful-exergy efficiency | 66.0 % |
+| cold / hot store | 33 °C / 82 °C |
 
 The round-trip efficiency lies inside the 52-60 % published for LTA-CAES
-concepts. Eight expansion stages drive
-the coldest coolant returns below ambient, which is what lets the plant
-harvest ambient heat. It is also why the cold loop needs an antifreeze: with
-pure water the same plant has no feasible design.
+concepts. The cavern is modelled as exchanging no net heat: a 20-year
+simulation of a salt cavern and the surrounding rock shows the wall settling
+to the injection temperature. The air is stored as the last intercooler
+leaves it; when it would be too warm for the cavern the last intercooler takes
+more water, and only if that is not enough does an aftercooler cool it to the
+injection limit.
 
 ## Screening design point
 
@@ -161,7 +164,9 @@ is in [How the solver works](docs/15_HOW_THE_SOLVER_WORKS.md).
 CAES Atlas is a screening model. It does not size equipment, estimate cost,
 represent off-design maps, cavern transients, dispatch or seasonal weather.
 Motor, generator, pump and fan losses are outside the boundary. The moisture
-model is a dry-air energy balance with a validity screen. Results rank
+model is a dry-air energy balance; its accuracy note (latent heat above
+0.1 wt% condensate) is reported, while the stored humidity is limited by the
+expander's published liquid capacity. Results rank
 concepts and identify binding constraints; they are not a detailed plant
 design. The full boundary is documented in
 [Physics and model boundary](docs/02_PHYSICS_AND_MODEL_BOUNDARY.md).

@@ -58,8 +58,10 @@ def test_tes_header_temperatures_are_mass_weighted_branch_mixtures():
     assert store.hot_temperature_before_loss_k == pytest.approx(
         mixed_temperature(charge_hxs), abs=1e-8
     )
+    # The store divides by the inventory R, this mix by the branch sum: they
+    # agree to the ladder's water-mass closure tolerance (~1e-7 relative).
     assert store.returned_temperature_k == pytest.approx(
-        mixed_temperature(discharge_hxs), abs=1e-8
+        mixed_temperature(discharge_hxs), abs=1e-4
     )
 
 

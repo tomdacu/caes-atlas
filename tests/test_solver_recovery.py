@@ -74,6 +74,9 @@ def test_simplex_search_conserves_mass_at_every_trial():
 ])
 def test_rejected_cold_loop_witness_needs_no_manual_seed(overrides, inventory, rte):
     plant = CAESPlant(replace(PlantConfig(), **overrides))
+    # The coupled cold-loop solver is the electricity-first path, whose design
+    # point still cools the air to ambient before the cavern.
+    plant._aftercool_to_ambient = True
     result = plant._close_cold_loop(inventory)
     assert_closed_and_wet_safe(result)
     assert result.round_trip_efficiency == pytest.approx(rte, abs=2e-7)
@@ -88,11 +91,16 @@ def test_inventory_search_recovers_previously_rejected_design(overrides):
     result = CAESPlant(config).run()
     assert_closed_and_wet_safe(result)
     assert result.round_trip_efficiency > .54
-    assert result.useful_energy_delivery_ratio > 1.04
+    # Above 1.04 with the former ambient aftercooler; the air now goes
+    # straight to the cavern.
+    assert result.useful_energy_delivery_ratio > 1.03
 
 
 def test_recovery_discards_arbitrary_stale_seeds():
     plant = CAESPlant(replace(PlantConfig(), coolant_minimum_temperature_c=0.))
+    # The coupled cold-loop solver is the electricity-first path, whose design
+    # point still cools the air to ambient before the cavern.
+    plant._aftercool_to_ambient = True
     plant._cold_loop_seed = (29., 600.)
     plant._charge_seed = (600., [5.] * 6)
     plant._extraction_margin_fraction_seed = .99

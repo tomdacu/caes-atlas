@@ -204,11 +204,12 @@ an equation. This was checked numerically: feeding the old residual guesses of
 5, 15, ... 55 °C always returned exactly the same cold tank, 37.4726 °C at
 `R = 1.5`. The dependence the old method was iterating on does not exist.
 
-One subtlety: the stored humidity comes from the charge side, and the turbine
-demands depend on it. The air is always cooled to ambient temperature in the
-cavern, so the humidity is fixed there and does not change with `T_c`. The
-program still checks this and repeats the chain if it did change. In every
-case examined it never has.
+One subtlety: the stored air comes from the charge side, and the turbine
+demands depend on it. The cavern exchanges no net heat, so the air is stored
+at the temperature, and with the humidity, it leaves the last intercooler,
+and those follow `T_c`. The chain stored air -> turbines -> `T_c` -> charge
+-> stored air is therefore repeated until it closes. It closes fast, because
+a degree more of stored air moves `T_c` by a small fraction of a degree.
 
 **Consequence: for this kind of plant the whole problem has one design
 variable, `R`**, apart from the charge split, discussed in section 7.
@@ -221,7 +222,8 @@ water means a cooler hot tank, and a cooler store is worth less to the heat
 user and closer to the turbines' needs. `R` is the classic trade-off between
 quantity and temperature grade.
 
-Along `R`, the reference plant looks like this:
+Along `R`, an earlier reference plant (pressurized water to 200 °C, cavern at
+the ambient temperature) looked like this:
 
 ```text
 R (kg/kg)   0.375        0.46 - 0.71              0.88 - 2.07          2.56 - 3.92         4.85 - 6.0
@@ -278,15 +280,14 @@ W_exp + Q_user = W_comp + Q_amb + (h_intake - h_exhaust) - Q_ac - L_tank
 
 Q_amb       free heat from E-303
 h_intake - h_exhaust   the exhaust leaves colder than the intake: also free energy
-Q_ac        heat lost when the air leaving the LAST intercooler cools to ambient in the cavern
+Q_ac        heat taken from the air after the LAST intercooler: zero unless the aftercooler is needed
 L_tank      heat lost by the tanks while waiting
 ```
 
 Two things follow.
 
-- The last intercooler is special. Whatever heat it fails to capture is lost
-  in the cavern (`Q_ac`). Giving it more water is worth more than capacity
-  matching suggests.
+- The last intercooler is special: its outlet is the stored air the
+  turbines start from, and it must respect the cavern's injection limit.
 - The objective `J` weighs sold heat exactly like electricity. The identity
   shows that a plant with `J < 1` can raise `J` just by spending more
   electricity in the compressor and selling the result as heat, which is what
@@ -312,6 +313,18 @@ one-dimensional search that needs only the charge train (2 ms per trial), so
 it is repeated at every `R` the outer search visits. Freeing all N branches was
 measured to add at most 0.3 points, by switching off every other intercooler,
 which describes a different machine rather than a better split.
+
+**The split moves the stored air.** More water on the last intercooler cools
+the air it sends to the cavern, and that air is what the turbines start from.
+So the optimized split is not simply swapped in: the plant is re-closed on the
+stored air it produces, and kept only if it then ranks better. If the stored
+air would be too wet for the expanders, the last intercooler is given just
+enough extra water to dry it, instead of refusing the point.
+
+**Aftercooler only when needed.** If the air would reach the cavern above
+its injection limit (50 °C), the last intercooler is first given more water
+until it does not; only if that cannot work does an aftercooler cool the air
+to the limit, throwing that heat away.
 
 ## 8. When there is no heat user
 

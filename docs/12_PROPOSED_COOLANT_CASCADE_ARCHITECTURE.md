@@ -92,7 +92,7 @@ not always cooperate. Measured on the 300 bar eight-stage train:
                ^^^^^  ^^^^^ stage 2 demands MORE than stage 1
 ```
 
-because the first expansion starts from stored air at ambient temperature while
+because the first expansion starts from stored air at the last intercooler's outlet temperature while
 later ones start from a turbine outlet sitting on the icing floor.
 
 The profile is therefore raised to its **suffix maximum**: each extraction is

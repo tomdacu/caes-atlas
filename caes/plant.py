@@ -99,8 +99,8 @@ from .numerics import (
     simplex_feasible, trial_point,
 )
 from .thermal_limits import (
+    REFERENCE_WET_EXPANDER_MAX_DISCHARGE_LIQUID_MASS_FRACTION,
     TEMPERATURE_LIMIT_TOLERANCE_K,
-    dry_air_wet_expansion_approximation_ok,
     minimum_wet_expander_temperature_k,
     reference_wet_expander_liquid_envelope_ok,
     wet_expander_hard_floor_temperature_k,
@@ -213,7 +213,7 @@ HEAT_USER_INVENTORY_TOLERANCE = 2e-4
 HEAT_USER_WINDOW_RESOLUTION = 2e-3
 # Humidity -> ladder -> cold tank -> charge -> humidity. The stored humidity is
 # set at the cavern state and normally settles on the first pass.
-HEAT_USER_CONSISTENCY_PASSES = 4
+HEAT_USER_CONSISTENCY_PASSES = 30
 
 # Exergy-optimal charge split: two shares (first and last branch), each found
 # by a bounded Brent search, alternated until neither moves by more than the
@@ -223,9 +223,56 @@ HEAT_USER_CONSISTENCY_PASSES = 4
 CHARGE_SPLIT_FLOOR_FRACTION = 1e-3
 CHARGE_SPLIT_ROUNDS = 4
 CHARGE_SPLIT_SHARE_TOLERANCE = 1e-3
+# Adiabatic cavern: the stored air closes on the last intercooler's outlet.
+STORED_AIR_TOLERANCE_K = 1e-5
+STORED_HUMIDITY_RELATIVE_TOLERANCE = 1e-6
+# A pass that raises the stored air by more than this, and by as much as the
+# pass before, is a runaway rather than a slow convergence.
+STORED_AIR_RUNAWAY_K = 2.0
+# The wettest stored air the wet-rated radial expander accepts: all its
+# vapour, condensed, must stay within the published discharge liquid capacity,
+# h / (1 + h) <= f (35 wt%, Baker Hughes turboexpanders). It never binds in
+# practice; the 0.1 wt% dry-air accuracy note is reported, not enforced.
+MAXIMUM_MODELLED_STORED_HUMIDITY = (
+    REFERENCE_WET_EXPANDER_MAX_DISCHARGE_LIQUID_MASS_FRACTION
+    / (1.0 - REFERENCE_WET_EXPANDER_MAX_DISCHARGE_LIQUID_MASS_FRACTION)
+) * (1.0 - 1e-9)
+# Relative resolution of the stored-humidity search, and of the drying bisection.
+STORED_HUMIDITY_TOLERANCE = 5e-3
+DRYING_SHARE_TOLERANCE = 1e-4
+DRYING_SHARE_STEP = 1.15
 
 class HeatOfftakeTemperatureError(ValueError):
     """The requested DH temperatures cannot match the plant-coolant profile."""
+
+
+def _two_share_split(
+    start: list[float], a: float, b: float, admissible: float
+) -> list[float] | None:
+    """Scale the first branch by ``a`` and the last by ``b`` at fixed inventory.
+
+    The intermediate branches keep their shape and absorb the difference. With
+    two branches only ``a`` is free. ``None`` if a branch would drop below
+    ``admissible``.
+    """
+    count = len(start)
+    total = sum(start)
+    first, last = start[0], start[-1]
+    head = a * first
+    if count == 2:
+        tail = total - head
+        return [head, tail] if min(head, tail) >= admissible else None
+    tail = b * last
+    rest = total - head - tail
+    if min(head, tail) < admissible or rest < admissible * (count - 2):
+        return None
+    scale = rest / (total - first - last)
+    return [head] + [ratio * scale for ratio in start[1:-1]] + [tail]
+
+
+def _last_cooler_outlet_k(charging: Cycle) -> float:
+    """Temperature of the air leaving the last intercooler (before any aftercooling)."""
+    return [p for p in charging.processes if p.kind != "aftercooling"][-1].outlet.temperature_k
 
 
 def _constraint_label(message: str | None) -> str:
@@ -357,6 +404,21 @@ class CAESPlant:
     ):
         self.config = config
         self.property_api = PropertyAPI(property_api)
+        # Temperature of the stored air, where the discharge starts. The
+        # cavern exchanges no net heat and there is no aftercooler, so in the
+        # heat-user and diabatic plants it is the last cooler's outlet, closed
+        # per design point. The electricity-first solver keeps its original
+        # design point, the air cooled to ambient before the cavern.
+        self._stored_air_k = config.ambient_temperature_k
+        # Only the electricity-first design point cools the charge air to
+        # ambient before the cavern (its "aftercooling" process).
+        self._aftercool_to_ambient = (
+            config.mode is not PlantMode.DIABATIC
+            and not self._dispatches_heat_to_user()
+        )
+        # Heat-user plants: an aftercooler to the cavern injection limit, used
+        # only when the last intercooler cannot hold that limit on its own.
+        self._aftercool_to_limit = False
         # Keep already accepted designs on the historical fast path. Recovery
         # is deterministic and does not require any continuation seed.
         self._preserve_search_path = False
@@ -455,7 +517,17 @@ class CAESPlant:
 
     def _run_uncached(self) -> PlantResult:
         if self._dispatches_heat_to_user():
-            return self._polish_wet_result(self._run_heat_user_search())
+            result = self._run_heat_user_search()
+            # Polishing re-solves the chosen plant: at its own stored air,
+            # with its own aftercooler if it needed one.
+            self._stored_air_k = result.discharging.inlet.temperature_k
+            self._aftercool_to_limit = any(
+                p.kind == "aftercooling" for p in result.charging.processes
+            )
+            return self._polish_wet_result(result)
+        # Electricity-first: the original design point, air cooled to ambient
+        # before the cavern. The diabatic charge resets it to its last cooler.
+        self._stored_air_k = self.config.ambient_temperature_k
         self._preserve_search_path = True
         try:
             result = self._run_fast_search()
@@ -901,11 +973,16 @@ class CAESPlant:
         return result
 
     def _heat_user_point(
-        self, inventory: float, *, optimize_split: bool
+        self,
+        inventory: float,
+        *,
+        optimize_split: bool,
+        humidity_target: float | None = None,
     ) -> _InventoryPoint:
         try:
             return _InventoryPoint(
-                inventory, self._heat_user_design(inventory, optimize_split)
+                inventory,
+                self._heat_user_design(inventory, optimize_split, humidity_target),
             )
         except SearchUnresolved as exc:
             return _InventoryPoint(inventory, None, f"numerically unresolved: {exc}")
@@ -913,29 +990,74 @@ class CAESPlant:
             return _InventoryPoint(inventory, None, str(exc))
 
     def _heat_user_design(
-        self, inventory: float, optimize_split: bool
+        self,
+        inventory: float,
+        optimize_split: bool,
+        humidity_target: float | None = None,
     ) -> PlantResult:
         """Solve one heat-user plant at a fixed inventory, without a loop root.
 
-        Order: stored humidity -> E-304 ladder (mass root on the margin) ->
+        Order: stored air -> E-304 ladder (mass root on the margin) ->
         explicit cold tank -> charge at that tank. The ladder is solved against
         the coolant ceiling as its provisional hot end, because the hot store
         does not enter the mass equation; whether the real store reaches the
         first extraction is then checked as the inequality it is.
+
+        The stored air (temperature and humidity) is what the last intercooler
+        and its separator leave: the cavern exchanges no net heat. The ladder
+        depends on it and it depends on the cold tank, so the chain is closed
+        by a short fixed point (:meth:`_consistent_heat_user`). The stored
+        humidity is either left FREE - whatever the capacity-matched charge
+        leaves - or set as a TARGET the charge must dry the air to
+        (:meth:`_heat_user_dried`). A free design refused because the stored
+        air is too wet for the expanders is retried as a target at the
+        wettest air the expander accepts, and one refused because the air
+        leaves the last intercooler above the cavern injection limit is
+        retried with that limit as a ceiling: more water on the last
+        intercooler. Only if that cannot hold the limit does an aftercooler
+        take the air down to it, throwing the excess heat away.
+        """
+        if humidity_target is not None:
+            return self._heat_user_dried(inventory, optimize_split, humidity_target)
+        try:
+            return self._heat_user_free(inventory, optimize_split)
+        except ValueError as exc:
+            if "wet-expander" not in str(exc) and "injection limit" not in str(exc):
+                raise
+        try:
+            return self._heat_user_dried(
+                inventory, optimize_split, MAXIMUM_MODELLED_STORED_HUMIDITY
+            )
+        except ValueError as exc:
+            if "cannot cool the air enough" not in str(exc):
+                raise
+        # Last resort: the aftercooler takes the air down to the injection
+        # limit, throwing that heat away.
+        self._aftercool_to_limit = True
+        try:
+            return self._heat_user_free(inventory, optimize_split)
+        finally:
+            self._aftercool_to_limit = False
+
+    def _consistent_heat_user(
+        self, inventory: float, charge_for, humidity: float
+    ) -> tuple[_LadderEvaluation, Cycle, _ThermalStore, float]:
+        """Close stored air -> ladder -> cold tank -> charge -> stored air.
+
+        ``charge_for(cold_k)`` builds the charge at a cold-tank temperature.
+        The stored air is its last intercooler's outlet and the separator's
+        humidity, and it may not exceed the cavern injection limit.
+        The dependence is weak - a degree more of stored air moves the cold
+        tank by a small fraction of a degree - so a few passes settle it.
         """
         c = self.config
         ceiling = c.coolant_maximum_temperature_k + TEMPERATURE_LIMIT_TOLERANCE_K
-        stages = c.compressor_stages
         cold_k = (
             self._heat_user_cold_seed
             if self._heat_user_cold_seed is not None
             else c.ambient_temperature_k
         )
-        _, probe = self._charge_with_ratios(
-            cold_k, [inventory / stages] * stages,
-            enforce_water_limit=False, analyze_moisture=True,
-        )
-        humidity = probe.protected_humidity_ratio
+        previous_rise: float | None = None
         for _ in range(HEAT_USER_CONSISTENCY_PASSES):
             bound = _ThermalStore(
                 total_ratio=inventory, cold_k=cold_k,
@@ -953,16 +1075,268 @@ class CAESPlant:
             cold_k = c.ambient_temperature_k + (
                 tank_inlet_k - c.ambient_temperature_k
             ) * self._tank_decay(inventory)
-            charging, store = self._charge_adiabatic(cold_k, inventory)
-            if store.protected_humidity_ratio == humidity:
-                break
+            charging, store = charge_for(cold_k)
+            last_k = charging.outlet.temperature_k
+            settled = abs(store.protected_humidity_ratio - humidity) <= (
+                STORED_HUMIDITY_RELATIVE_TOLERANCE * humidity
+            ) and abs(last_k - self._stored_air_k) <= STORED_AIR_TOLERANCE_K
+            if last_k > c.maximum_injection_temperature_k + TEMPERATURE_LIMIT_TOLERANCE_K:
+                # Above the limit: more water on the last intercooler is
+                # needed, not more passes. The constrained design, retried by
+                # the caller, keeps this split whenever it already complies.
+                raise ValueError(
+                    "the air leaves the last intercooler above the cavern "
+                    f"injection limit: {last_k - 273.15:.2f} °C against "
+                    f"{c.maximum_injection_temperature_c:.2f} °C"
+                )
+            if settled:
+                self._heat_user_cold_seed = cold_k
+                return ladder, charging, store, cold_k
+            rise = last_k - self._stored_air_k
+            if rise > STORED_AIR_RUNAWAY_K and previous_rise is not None and rise >= 0.9 * previous_rise:
+                # Each degree of stored air returns more than a degree: the
+                # charge heat has no sink but the stores themselves.
+                raise ValueError(
+                    "no steady state: the stored air and the cold tank heat "
+                    "each other up, because the turbines need too little "
+                    "reheat to carry the compression heat away "
+                    f"(stored air {self._stored_air_k - 273.15:.1f} -> "
+                    f"{last_k - 273.15:.1f} °C in one pass)"
+                )
+            previous_rise = rise
+            self._stored_air_k = last_k
             humidity = store.protected_humidity_ratio
-        else:
-            raise SearchUnresolved(
-                "stored humidity and cold-tank temperature did not settle"
-            )
-        self._heat_user_cold_seed = cold_k
+        raise SearchUnresolved(
+            "stored air and cold-tank temperature did not settle"
+        )
 
+    def _start_stored_air(self, inventory: float) -> float:
+        """First guess of the stored air: an equal-split charge at the seed tank."""
+        c = self.config
+        stages = c.compressor_stages
+        cold_k = (
+            self._heat_user_cold_seed
+            if self._heat_user_cold_seed is not None
+            else c.ambient_temperature_k
+        )
+        # Only a starting point: the validity screens run on the settled charge.
+        charging, _ = self._charge_with_ratios(
+            cold_k, [inventory / stages] * stages,
+            enforce_water_limit=False, analyze_moisture=False,
+        )
+        self._stored_air_k = _last_cooler_outlet_k(charging)
+        charging, _ = self._charge_with_ratios(
+            cold_k, [inventory / stages] * stages,
+            enforce_water_limit=False, analyze_moisture=False,
+        )
+        return self._stored_humidity(charging)
+
+    def _best_of(self, attempts) -> PlantResult:
+        """Assemble every candidate (a thunk giving ladder, charge, store) and keep the best."""
+        best: PlantResult | None = None
+        refusal: Exception | None = None
+        for attempt in attempts:
+            try:
+                result = self._heat_user_assembly(*attempt())
+            except (ValueError, SearchUnresolved) as exc:
+                refusal = refusal or exc
+                continue
+            if best is None or self._objective(result) > self._objective(best):
+                best = result
+        if best is None:
+            assert refusal is not None
+            raise refusal
+        return best
+
+    def _heat_user_free(self, inventory: float, optimize_split: bool) -> PlantResult:
+        """Heat-user plant with the stored air left to the capacity-matched charge.
+
+        With ``optimize_split`` the exergy-optimal split is found against the
+        capacity-matched design, then closed on its own stored air (it moves
+        the last intercooler's outlet) and kept if it ranks better.
+        """
+        c = self.config
+        stages = c.compressor_stages
+        humidity = self._start_stored_air(inventory)
+        ladder, charging, store, cold_k = self._consistent_heat_user(
+            inventory, lambda cold: self._charge_adiabatic(cold, inventory), humidity,
+        )
+        base = (inventory, ladder, charging, store)
+        attempts = [lambda: base]
+        ratios = [
+            p.heat_exchanger.water_air_mass_ratio
+            for p in charging.processes
+            if p.kind == "intercooling" and p.heat_exchanger is not None
+        ]
+        if optimize_split and len(ratios) == stages:
+            design = self._materialize_ladder(store, ladder)
+            split = self._exergy_optimal_charge_split(
+                cold_k, ratios, -design.cycle.work_j_per_kg, ladder.supplies[0],
+                outlet_ceiling_k=(
+                    None if self._aftercool_to_limit
+                    else c.maximum_injection_temperature_k
+                ),
+            )
+            if split != ratios:
+                attempts.insert(0, lambda: (inventory, *self._consistent_heat_user(
+                    inventory, lambda cold: self._charge_with_ratios(cold, split),
+                    store.protected_humidity_ratio,
+                )[:3]))
+        return self._best_of(attempts)
+
+    def _heat_user_dried(
+        self, inventory: float, optimize_split: bool, target: float
+    ) -> PlantResult:
+        """Heat-user plant whose last intercooler cools and dries the air enough.
+
+        The charge must leave at most ``target`` in the stored air and the air
+        no warmer than the cavern injection limit, which it does by sending
+        more coolant through the last intercooler (:meth:`_drying_shares`);
+        with ``optimize_split`` the exergy-optimal split is sought under the
+        same constraints. The ladder is solved for
+        the humidity the charge actually leaves, in the same fixed point as
+        the stored-air temperature.
+        """
+        c = self.config
+        cap_k = c.maximum_injection_temperature_k
+        found: dict[str, object] = {}
+
+        def drying_charge(cold_k: float) -> tuple[Cycle, _ThermalStore]:
+            start = self._capacity_matched_ratios(cold_k, inventory)
+            shares = self._drying_shares(cold_k, start, target, cap_k)
+            if shares is None:
+                raise ValueError(
+                    "the last intercooler cannot cool the air enough: fed with "
+                    "all the coolant the other branches can spare, it leaves "
+                    f"it wetter than {target * 1e3:.3f} g/kg or warmer than the "
+                    f"{c.maximum_injection_temperature_c:.0f} °C injection limit"
+                )
+            admissible = CHARGE_SPLIT_FLOOR_FRACTION * sum(start) / len(start) * (1.0 - 1e-9)
+            drying = _two_share_split(start, *shares, admissible)
+            assert drying is not None
+            found.update(start=start, shares=shares, drying=drying)
+            return self._charge_with_ratios(cold_k, drying)
+
+        self._start_stored_air(inventory)
+        ladder, charging, store, cold_k = self._consistent_heat_user(
+            inventory, drying_charge, target,
+        )
+        base = (inventory, ladder, charging, store)
+        attempts = [lambda: base]
+        if optimize_split:
+            design = self._materialize_ladder(store, ladder)
+            split = self._exergy_optimal_charge_split(
+                cold_k, found["start"], -design.cycle.work_j_per_kg, ladder.supplies[0],
+                humidity_ceiling=target, outlet_ceiling_k=cap_k,
+                initial=found["shares"],
+            )
+            if split != found["drying"]:
+                def optimized():
+                    closed = self._consistent_heat_user(
+                        inventory, lambda cold: self._charge_with_ratios(cold, split),
+                        store.protected_humidity_ratio,
+                    )
+                    if closed[2].protected_humidity_ratio > target * (1.0 + 1e-9):
+                        raise ValueError("the optimized split does not dry the air enough")
+                    return (inventory, *closed[:3])
+                attempts.insert(0, optimized)
+        return self._best_of(attempts)
+
+    def _stored_humidity(self, charging: Cycle) -> float:
+        return analyze_charge_moisture(
+            self.config, charging
+        ).stored_air_water_vapor_kg_per_kg_dry_air
+
+    def _drying_shares(
+        self, cold_k: float, start: list[float], target: float, cap_k: float
+    ) -> tuple[float, float] | None:
+        """Least coolant moved to the last intercooler that dries the air to
+        ``target`` and cools it to ``cap_k``.
+
+        More coolant on the last branch cools the air leaving it, and the
+        separator after it sets the stored humidity. Bisection on that share;
+        ``None`` if even the last branch fed with every spare kilogram is not
+        enough, or if the move overheats the other branches. The first
+        dry-enough share is returned: extra coolant beyond it is the split
+        optimizer's call.
+        """
+        count = len(start)
+        total = sum(start)
+        admissible = CHARGE_SPLIT_FLOOR_FRACTION * total / count * (1.0 - 1e-9)
+        ceiling = self.config.coolant_maximum_temperature_k + TEMPERATURE_LIMIT_TOLERANCE_K
+
+        if count == 2:
+            # Only the first share is free: less on the first is more on the last.
+            def shares(x: float) -> tuple[float, float]:
+                return (x, 1.0)
+            wet, dry = 1.0, admissible / start[0] * (1.0 + 1e-9)
+        else:
+            def shares(x: float) -> tuple[float, float]:
+                return (1.0, x)
+            spare = total - start[0] - admissible * (count - 2)
+            wet, dry = 1.0, spare / start[-1] * (1.0 - 1e-9)
+
+        def solve(x: float) -> tuple[Cycle, _ThermalStore] | None:
+            split = _two_share_split(start, *shares(x), admissible)
+            if split is None:
+                return None
+            try:
+                return self._charge_with_ratios(
+                    cold_k, split, enforce_water_limit=False, analyze_moisture=False,
+                )
+            except ValueError:
+                return None
+
+        def dry_enough(x: float) -> bool:
+            solved = solve(x)
+            return (
+                solved is not None
+                and self._stored_humidity(solved[0]) <= target
+                and _last_cooler_outlet_k(solved[0]) <= cap_k
+            )
+
+        # The stored humidity is U-shaped in the share: past a point the
+        # starved middle branches heat the last compressor's inlet faster than
+        # the extra coolant cools its outlet. Step out from the free split to
+        # the first dry-enough share, then bisect the last step.
+        if dry_enough(wet):
+            found = wet
+        else:
+            step = DRYING_SHARE_STEP if dry > wet else 1.0 / DRYING_SHARE_STEP
+            limit, found, x = dry, None, wet
+            while found is None:
+                trial = x * step
+                if (trial - limit) * (step - 1.0) > 0.0:
+                    trial = limit
+                if dry_enough(trial):
+                    found = trial
+                elif trial == limit:
+                    return None
+                else:
+                    x = trial
+            wet, dry = x, found
+            while abs(dry - wet) > DRYING_SHARE_TOLERANCE * abs(dry):
+                middle = 0.5 * (wet + dry)
+                if dry_enough(middle):
+                    dry = middle
+                else:
+                    wet = middle
+            found = dry
+        solved = solve(found)
+        if solved is None or solved[1].maximum_water_temperature_reached_k > ceiling:
+            return None
+        return shares(found)
+
+    def _heat_user_assembly(
+        self,
+        inventory: float,
+        ladder: _LadderEvaluation,
+        charging: Cycle,
+        store: _ThermalStore,
+    ) -> PlantResult:
+        """Materialize the ladder on a charge and assemble the closed plant."""
+        # The discharge starts from exactly the state this charge leaves.
+        self._stored_air_k = charging.outlet.temperature_k
         trunk_inlet_k = ladder.supplies[0]
         if store.hot_available_k <= trunk_inlet_k:
             raise ValueError(
@@ -982,46 +1356,11 @@ class CAESPlant:
         design = replace(design, returned_mean_k=sum(
             r * t for r, t, _ in design.returns
         ) / inventory)
-
-        attempts: list[tuple[Cycle, _ThermalStore]] = []
-        if optimize_split:
-            ratios = [
-                p.heat_exchanger.water_air_mass_ratio
-                for p in charging.processes
-                if p.kind == "intercooling" and p.heat_exchanger is not None
-            ]
-            if len(ratios) == stages:
-                split = self._exergy_optimal_charge_split(
-                    cold_k, ratios, -design.cycle.work_j_per_kg, trunk_inlet_k
-                )
-                if split != ratios:
-                    try:
-                        optimized = self._charge_with_ratios(cold_k, split)
-                    except ValueError:
-                        optimized = None
-                    if (
-                        optimized is not None
-                        and optimized[1].protected_humidity_ratio == humidity
-                    ):
-                        attempts.append(optimized)
-        attempts.append((charging, store))
-
-        refusal: ValueError | None = None
-        for charge_cycle, charge_store in attempts:
-            try:
-                result = self._assemble_adiabatic(charge_cycle, charge_store, design)
-            except ValueError as exc:
-                refusal = refusal or exc
-                continue
-            closure = result.thermal_store.cold_loop_closure_error_k
-            if abs(closure) > COLD_LOOP_RETURN_CLOSURE_K:
-                refusal = refusal or ValueError(
-                    f"the coolant loop does not close: {closure:.2e} K"
-                )
-                continue
-            return result
-        assert refusal is not None
-        raise refusal
+        result = self._assemble_adiabatic(charging, store, design)
+        closure = result.thermal_store.cold_loop_closure_error_k
+        if abs(closure) > COLD_LOOP_RETURN_CLOSURE_K:
+            raise ValueError(f"the coolant loop does not close: {closure:.2e} K")
+        return result
 
     def _heat_user_ladder(self, bound: _ThermalStore) -> _LadderEvaluation:
         """Mass-closed E-304 ladder, independent of the evaluation history.
@@ -1075,6 +1414,10 @@ class CAESPlant:
         start: list[float],
         expansion_work: float,
         trunk_inlet_k: float,
+        *,
+        humidity_ceiling: float | None = None,
+        outlet_ceiling_k: float | None = None,
+        initial: tuple[float, float] | None = None,
     ) -> list[float]:
         """Charge split that maximizes useful exergy efficiency at fixed R.
 
@@ -1105,7 +1448,10 @@ class CAESPlant:
         the first branch and ``b`` on the last, rescaling the middle to keep
         the inventory exact. Each is a bounded one-dimensional maximization
         (Brent), alternated to convergence; only the charge train is re-solved,
-        about 2 ms per trial. The coolant ceiling is a hard constraint.
+        about 2 ms per trial. The coolant ceiling is a hard constraint, and so
+        are ``humidity_ceiling`` and ``outlet_ceiling_k`` (the cavern
+        injection limit) on the air the last intercooler sends to the cavern;
+        ``initial`` is then a pair of shares known to satisfy it.
         """
         c = self.config
         count = len(start)
@@ -1119,19 +1465,9 @@ class CAESPlant:
         # ulp below smallest; the floor check must not reject its own endpoint.
         admissible = smallest * (1.0 - 1e-9)
         first, last = start[0], start[-1]
-        middle = total - first - last
 
         def ratios(a: float, b: float) -> list[float] | None:
-            head = a * first
-            if count == 2:
-                tail = total - head
-                return [head, tail] if min(head, tail) >= admissible else None
-            tail = b * last
-            rest = total - head - tail
-            if min(head, tail) < admissible or rest < admissible * (count - 2):
-                return None
-            scale = rest / middle
-            return [head] + [ratio * scale for ratio in start[1:-1]] + [tail]
+            return _two_share_split(start, a, b, admissible)
 
         cache: dict[tuple[float, float], float | None] = {}
 
@@ -1150,6 +1486,14 @@ class CAESPlant:
                     if (
                         cycle is not None
                         and store.maximum_water_temperature_reached_k <= ceiling
+                        and (
+                            humidity_ceiling is None
+                            or self._stored_humidity(cycle) <= humidity_ceiling
+                        )
+                        and (
+                            outlet_ceiling_k is None
+                            or _last_cooler_outlet_k(cycle) <= outlet_ceiling_k
+                        )
                     ):
                         heat = store.total_ratio * WATER_CP_J_PER_KGK * (
                             store.hot_available_k - trunk_inlet_k
@@ -1171,7 +1515,7 @@ class CAESPlant:
             )
             return max((found, low, current), key=lambda s: rank(along(s)))
 
-        a = b = 1.0
+        a, b = initial if initial is not None else (1.0, 1.0)
         seed = self._charge_split_seed
         if seed is not None and rank(value(*seed)) > rank(value(a, b)):
             a, b = seed
@@ -1340,7 +1684,7 @@ class CAESPlant:
             # humidity. Even outside that regime this is only a predictor:
             # residual() rebuilds the real charge, humidity and every guard.
             humidity = min(inlet_humidity_ratio(c),
-                           saturation_humidity_ratio(self._p_storage, c.ambient_temperature_k))
+                           saturation_humidity_ratio(self._p_storage, self._stored_air_k))
             provisional = _ThermalStore(total_inventory, c.ambient_temperature_k,
                                         c.coolant_maximum_temperature_k,
                                         c.coolant_maximum_temperature_k, 0., (), humidity,
@@ -1432,7 +1776,7 @@ class CAESPlant:
                 air = hot-duty/cp
                 recovered += duty
             hot_store = c.ambient_temperature_k + decay*(cold+recovered/(inventory*WATER_CP_J_PER_KGK)-c.ambient_temperature_k)
-            air = c.ambient_temperature_k
+            air = self._stored_air_k
             returns = 0.
             for _ in range(c.expander_stages):
                 duty = ke*(hot_store-air)
@@ -1919,9 +2263,18 @@ class CAESPlant:
             branches.append((ratios[stage], hx.water_outlet_temperature_k, hx.duty_j_per_kg_air))
             current = cooler.outlet
 
-        if abs(current.temperature_k - c.ambient_temperature_k) > 1e-9:
+        # Only the electricity-first design point cools the air to ambient
+        # before the cavern; elsewhere the stored air IS this outlet.
+        if self._aftercool_to_limit and current.temperature_k > c.maximum_injection_temperature_k:
             cavern = exchange_with_environment(
-                current, c.ambient_temperature_k, 0.0, WORKING_FLUID,
+                current, c.maximum_injection_temperature_k, 0.0, WORKING_FLUID,
+                "aftercooling", BOTH_WAYS,
+            )
+            cycle.processes.append(cavern)
+            current = cavern.outlet
+        elif self._aftercool_to_ambient and abs(current.temperature_k - self._stored_air_k) > 1e-9:
+            cavern = exchange_with_environment(
+                current, self._stored_air_k, 0.0, WORKING_FLUID,
                 "aftercooling", BOTH_WAYS,
             )
             cycle.processes.append(cavern)
@@ -1995,14 +2348,6 @@ class CAESPlant:
                 "remaining charge-side moisture exceeds the selected reference "
                 "wet-expander discharge liquid envelope; add deeper drying or "
                 "select an OEM machine with a larger guaranteed liquid capacity"
-            )
-        if not dry_air_wet_expansion_approximation_ok(
-            protected_humidity_ratio
-        ):
-            raise ValueError(
-                "possible wet-expander condensate exceeds the dry-air model's "
-                "0.1 wt% validity screen; use a coupled humid-air/two-phase "
-                "energy balance for this configuration"
             )
         return cycle, replace(
             store,
@@ -2273,11 +2618,12 @@ class CAESPlant:
         that keys on ``self`` and so pins every plant object it ever saw in a
         module-level dictionary for the lifetime of the process.
         """
-        cached = self._requirements_cache.get(protected_humidity_ratio)
+        key = (protected_humidity_ratio, self._stored_air_k)
+        cached = self._requirements_cache.get(key)
         if cached is not None:
             return cached
         computed = self._solve_discharge_requirements(protected_humidity_ratio)
-        self._requirements_cache[protected_humidity_ratio] = computed
+        self._requirements_cache[key] = computed
         return computed
 
     def _solve_discharge_requirements(
@@ -2285,7 +2631,7 @@ class CAESPlant:
         protected_humidity_ratio: float,
     ) -> tuple[_DischargeRequirement, ...]:
         c = self.config
-        current = state_pt(self._p_storage, c.ambient_temperature_k, WORKING_FLUID)
+        current = state_pt(self._p_storage, self._stored_air_k, WORKING_FLUID)
         pressure_ratio = self._expansion_ratio()
         requirements: list[_DischargeRequirement] = []
         for stage in range(c.expander_stages):
@@ -2333,7 +2679,7 @@ class CAESPlant:
         :meth:`_discharge_with_ratios` call always enforces freezing.
         """
         c = self.config
-        current = state_pt(self._p_storage, c.ambient_temperature_k, WORKING_FLUID)
+        current = state_pt(self._p_storage, self._stored_air_k, WORKING_FLUID)
         cycle = Cycle("discharging", current)
         branches: list[tuple[float, float, float]] = []
         required_total = 0.0
@@ -2413,7 +2759,7 @@ class CAESPlant:
         """
 
         c = self.config
-        current = state_pt(self._p_storage, c.ambient_temperature_k, WORKING_FLUID)
+        current = state_pt(self._p_storage, self._stored_air_k, WORKING_FLUID)
         branches: list[tuple[float, float, float]] = []
         required_total = 0.0
         for supply_k, requirement in zip(
@@ -2501,7 +2847,7 @@ class CAESPlant:
         if sum(ratios) <= 0.0:
             raise ValueError("the interheater train needs some coolant allocation")
 
-        current = state_pt(self._p_storage, c.ambient_temperature_k, WORKING_FLUID)
+        current = state_pt(self._p_storage, self._stored_air_k, WORKING_FLUID)
         cycle = Cycle("discharging", current)
         branches: list[tuple[float, float, float]] = []
         supplies = self._level_supplies(store)
@@ -2696,7 +3042,7 @@ class CAESPlant:
         restoration; the original guarded routine validates its answer.
         """
         c = self.config
-        current = state_pt(self._p_storage, c.ambient_temperature_k, WORKING_FLUID)
+        current = state_pt(self._p_storage, self._stored_air_k, WORKING_FLUID)
         penalty = 0.0
         for ratio, requirement in zip(ratios, self._discharge_requirements(store.protected_humidity_ratio)):
             heater = heat_air_with_water(current, store.hot_available_k, ratio,
@@ -2773,7 +3119,7 @@ class CAESPlant:
         """
 
         c = self.config
-        current = state_pt(self._p_storage, c.ambient_temperature_k, WORKING_FLUID)
+        current = state_pt(self._p_storage, self._stored_air_k, WORKING_FLUID)
         cycle = Cycle("discharging", current)
         branches: list[tuple[float, float, float]] = []
         for supply_k, light_branch, requirement in zip(
@@ -3634,11 +3980,9 @@ class CAESPlant:
             )
             charging.processes.append(cooler)
             current = cooler.outlet
-        if abs(current.temperature_k - c.ambient_temperature_k) > 1e-9:
-            charging.processes.append(exchange_with_environment(
-                current, c.ambient_temperature_k, 0.0, WORKING_FLUID,
-                "aftercooling", BOTH_WAYS,
-            ))
+        # No aftercooler: the cavern exchanges no net heat, so the air is
+        # stored as the last ambient cooler leaves it.
+        self._stored_air_k = current.temperature_k
 
         moisture = analyze_charge_moisture(c, charging)
         protected_humidity_ratio = (
@@ -3652,15 +3996,7 @@ class CAESPlant:
                 "wet-expander discharge liquid envelope; add deeper drying or "
                 "select an OEM machine with a larger guaranteed liquid capacity"
             )
-        if not dry_air_wet_expansion_approximation_ok(
-            protected_humidity_ratio
-        ):
-            raise ValueError(
-                "possible wet-expander condensate exceeds the dry-air model's "
-                "0.1 wt% validity screen; use a coupled humid-air/two-phase "
-                "energy balance for this configuration"
-            )
-        current = state_pt(self._p_storage, c.ambient_temperature_k, WORKING_FLUID)
+        current = state_pt(self._p_storage, self._stored_air_k, WORKING_FLUID)
         discharging = Cycle("discharging", current)
         pressure_ratio = self._expansion_ratio()
         external_heat = 0.0
@@ -3727,7 +4063,7 @@ class CAESPlant:
         c = self.config
         return Cycle(cycle.name, cycle.inlet, [
             replace(process, exergy_destruction_j_per_kg=process_exergy_destruction(
-                process, c.ambient_temperature_k, self._p_ambient, WORKING_FLUID
+                process, c.ambient_temperature_k, self._p_ambient, WORKING_FLUID,
             )) for process in cycle.processes
         ])
 

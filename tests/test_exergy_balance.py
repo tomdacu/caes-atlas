@@ -85,7 +85,10 @@ def test_no_energy_is_created_in_the_cavern(config):
     """
     result = CAESPlant(config).run()
     jump = result.discharging.inlet.enthalpy_j_per_kg - result.charging.outlet.enthalpy_j_per_kg
-    assert abs(jump) < 1e-6, f"{jump / 1000:+.3f} kJ/kg-air appears out of nowhere across the cavern"
+    # The stored state is re-evaluated from (p, T) of the charge outlet: at
+    # 300 bar that round trip differs by ~1e-5 J/kg, far below the ~21 kJ/kg
+    # this test was written to catch.
+    assert abs(jump) < 1e-3, f"{jump / 1000:+.3f} kJ/kg-air appears out of nowhere across the cavern"
 
     assert result.charging.outlet.pressure_bar == pytest.approx(config.storage_pressure_bar)
     assert result.discharging.inlet.pressure_bar == pytest.approx(config.storage_pressure_bar)
@@ -127,18 +130,20 @@ def test_exhaust_loss_is_reported_and_matches_the_exhaust_state(config):
 
 
 def test_cold_tank_temperature_is_an_optimized_result():
-    """A hot ambient makes the closed loop settle ABOVE the discharge inlet:
-    the tank temperature is an outcome, not an input."""
+    """The cold tank is an outcome of the closed loop, not an input: it settles
+    above the ambient, and below the stored air the last intercooler (fed
+    from it) leaves."""
     result = CAESPlant(PlantConfig(ambient_temperature_c=25.0)).run()
-    assert result.thermal_store.cold_temperature_k > result.discharging.inlet.temperature_k
+    cold = result.thermal_store.cold_temperature_k
+    assert cold > PlantConfig(ambient_temperature_c=25.0).ambient_temperature_k
+    assert cold < result.discharging.inlet.temperature_k
 
 
 def test_diabatic_aftercooler_is_finite_ntu_and_never_reaches_ambient():
     """D-CAES coolers used to be idealised to "hit ambient + approach exactly",
     a free infinite-area exchanger the water-side exchangers never got. They are
     now finite counter-flow exchangers against the atmosphere (Cr = 0), so the
-    outlet approaches ambient by 1 - exp(-NTU) of the span - and the cavern
-    equilibration step always has the last kelvin or two to do."""
+    outlet approaches ambient by 1 - exp(-NTU) of the span."""
     config = PlantConfig(mode=PlantMode.DIABATIC, ambient_heat_exchanger_ntu=3.0)
     result = CAESPlant(config).run()
     coolers = [p for p in result.charging.processes if p.kind == "intercooling"]
@@ -150,9 +155,12 @@ def test_diabatic_aftercooler_is_finite_ntu_and_never_reaches_ambient():
         # Cr = 0 effectiveness, up to the small variable-cp correction.
         assert gap / span == pytest.approx(exp(-3.0), rel=0.1)
 
-    # ...and the explicit final aftercooler does the last kelvins and is followed
-    # by the ideal separator used by the moisture controller.
-    assert any(p.kind == "aftercooling" for p in result.charging.processes)
+    # No aftercooler: the cavern exchanges no net heat, so the air is stored
+    # as the last cooler leaves it, a kelvin or two above ambient.
+    assert not any(p.kind == "aftercooling" for p in result.charging.processes)
+    assert result.discharging.inlet.temperature_k == pytest.approx(
+        coolers[-1].outlet.temperature_k, abs=1e-9
+    )
 
 
 def _ambient_heat_split(result):
@@ -252,8 +260,10 @@ def test_delivery_ratio_is_not_bounded_by_one():
         result.charging.inlet.enthalpy_j_per_kg
         - result.discharging.outlet.enthalpy_j_per_kg
     )
-    assert air_stream > 40_000.0
-    assert result.discharging.outlet.temperature_c < -20.0
+    # Figures of the former ambient aftercooler were > 40 kJ/kg and < -20 °C;
+    # the air now goes to the cavern warmer and wetter.
+    assert air_stream > 30_000.0
+    assert result.discharging.outlet.temperature_c < -15.0
 
     # The complete accounting stays bounded.
     assert 0.0 < result.exergy.total_useful_exergy_efficiency < 1.0

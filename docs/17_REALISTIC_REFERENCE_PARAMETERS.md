@@ -23,7 +23,9 @@ site         North-German salt-cavern region, 10 °C annual mean, 80 % RH
 storage      salt cavern at 100 bar (single design pressure)
 compression  integrally geared compressor, 8 stages, intercooled after every stage
 expansion    integrally geared radial expander, 8 stages (two 4-stage gearboxes)
-store        two tanks, water-glycol loop from -25 to 150 °C
+cavern       salt cavern, no net heat exchange, injection up to 50 °C
+aftercooler  only if the last intercooler cannot hold that limit (not in this plant)
+store        two tanks, coolant not yet chosen, screened from -40 to 150 °C
 heat user    district heating, supply 80 °C, return 40 °C
 ```
 
@@ -36,6 +38,7 @@ stated basis, `[choice]` a design decision of this project.
 | input | value | published range | basis | tag |
 |---|---:|---|---|---|
 | `storage_pressure_bar` | 100 | 40-152 | The LTA-CAES design window: 100-152 bar in [Budt, Wolf and Span 2012](https://2012.international.conference.modelica.org/proceedings/html/pdf/ecp12076791_BudtWolfSpan.pdf); 40-100 bar for KompEx (Hadam and Budt 2023). Operating caverns run 43-76 bar (Huntorf, McIntosh). 100 bar sits at the meeting point of the two LTA-CAES designs. Higher pressure lowers every figure of merit here (section 3) | `[paper]` |
+| `maximum_injection_temperature_c` | 50 | 40-50 | Air is injected into the salt cavern at up to 50 °C at Huntorf (Kaiser 2020, in the dossier); the last intercooler is given more water when the air would leave it warmer, and an aftercooler works only if that is not enough. The cavern itself exchanges no net heat ([document 02](02_PHYSICS_AND_MODEL_BOUNDARY.md#the-cavern)). In the reference plant the last intercooler leaves the air at 45.7 °C, so the limit does not bind | `[project]` |
 | `compressor_stages` | 8 | 5-10 | "an eight stage compressor and a four stage expander, both integrally geared" (Budt, Wolf and Span 2012); IGC vendors offer up to 8-10 stages with intercooling after each ([MAN RG](https://www.man-es.com/docs/default-source/document-sync/rg-integrally-geared-compressors-eng.pdf)). At 100 bar this is a stage ratio of about 1.8, inside the 1.7-2.2 IGC band | `[paper]` |
 | `expander_stages` | 8 | 3-8 | Equal to the compressor by choice. An integrally geared expander carries 1-4 stages per gearbox ([Atlas Copco](https://www.atlascopco.com/content/dam/atlas-copco/compressor-technique/gas-and-process/documents/new-folder/AC%20Turboexpander%20Brochure.pdf.coredownload.pdf)), so eight stages mean two gearboxes. LTA-CAES used four | `[choice]` |
 | `compressor_efficiency` | 0.86 | 0.85-0.89 | Per-stage **isentropic**. Inside the band converted from the IGC polytropic "high eighties" ([Witkowski and Majkut 2012](https://journals.pan.pl/Content/84623/PDF/06_paper.pdf)), one point above its conservative end: a margin for a large machine running across its map | `[choice]` |
@@ -46,8 +49,8 @@ stated basis, `[choice]` a design decision of this project.
 | `heat_user_exchanger_ntu` | 5.0 | 3.7-8.9 | Conventional substation, LMTD about 10 K ([Thorsen and Iversen 2012](https://assets.danfoss.com/documents/latest/90874/AC098986469348en-010201.pdf)) | `[paper]` |
 | `extraction_exchanger_ntu` | 8 per zone | 3-13 | By analogy with closed feedwater heaters, terminal difference 2.8-4.4 K ([EPRI TR-107422-V2](https://restservice.epri.com/publicdownload/TR-107422-V2/0/Product)). The least constrained input: no staged-bleed exchanger of this kind exists in a built CAES plant | `[estimate]` |
 | `cold_return_cooler_ntu` | 0.8 | 0.4-1.1 | Dry cooler at a typical 5-9 K approach to ambient ([IEA SHC Task 38, C5](https://task38.iea-shc.org/Data/Sites/1/publications/IEA-Task38-Report_C5_Heat%20rejection.pdf)). The model treats the atmosphere as an infinite stream, `eps = 1 - exp(-NTU)`: about 55 % effectiveness | `[paper]` |
-| `coolant_minimum_temperature_c` | -25 | | Water-glycol, roughly 40 % glycol. **Needed, not optional:** the tail interheaters see air below 0 °C and their returns leave below the freezing point of water; with pure water (+2 °C) the plant has no feasible design, with 8 + 8 or 6 + 6 stages. The coldest return reaches -11.3 °C, so the limit does not bind; -25 °C keeps the mixture's freezing point about 14 K below it, since a glycol mixture starts forming ice crystals before its nominal freezing point | `[estimate]` |
-| `coolant_maximum_temperature_c` | 150 | | Glycol mixtures degrade above roughly 150-175 °C. The plant reaches 86 °C, so the limit does not bind | `[estimate]` |
+| `coolant_minimum_temperature_c` | -40 | | The coolant is not yet chosen (water-glycol, brine, a low-temperature heat-transfer fluid), so the limit is set wide enough to screen the physics rather than a fluid; the model uses the heat capacity of water throughout. In the reference case the coldest return is +5 °C and no antifreeze is needed. Colder sites, colder stored air or more expansion stages drive the tail returns below 0 °C, and the chosen fluid must then cover them: about -25 °C needs 40 % glycol | `[design choice]` |
+| `coolant_maximum_temperature_c` | 150 | | A common ceiling for glycol mixtures and unpressurized loops. The plant reaches 86 °C, so the limit does not bind | `[estimate]` |
 | `thermal_storage_tank_ua_w_per_k` | 1.0e-3 per kg of air | 3e-4 to 3e-3 | About 1.5 kW/K for a 10 000 m³ insulated hot-water store ([IEA-ES fact sheet](https://iea-es.org/wp-content/uploads/public/FactSheet_Thermal_Sensible_Water_2022-10-19.pdf)), divided by the 1.56e6 kg of air it serves | `[estimate]` |
 | `storage_duration_hours` | 4 | 2-12 | The **standing time** of each tank between charge and discharge, not the discharge duration; one value applies to both tanks | `[estimate]` |
 | `heat_user_supply_temperature_c` | 80 | 65-90 | Close to the measured Danish average supply of 78 °C; inside the 3rd-generation range (Sweden 86 °C, Germany 88 °C) | `[choice]` |
@@ -74,47 +77,53 @@ Solved with the current code (`python -m caes.cli`, no arguments):
 
 | quantity | value |
 |---|---:|
-| compression work | 543.9 kJ/kg-air |
-| expansion work | 304.9 kJ/kg-air |
-| heat delivered at 80/40 °C | 261.4 kJ/kg-air |
-| ambient heat drawn in | 30.9 kJ/kg-air |
-| electrical round-trip efficiency | **56.1 %** |
-| useful-exergy efficiency | 63.2 % |
-| useful-energy delivery ratio `J` | 1.041 |
-| net heat-pump COP (Carnot at 80/40 °C and 10 °C ambient: 6.7) | 1.09 |
-| coolant inventory | 2.49 kg / kg air |
-| cold / hot store | 35.5 °C / 85.7 °C |
+| compression work | 539.7 kJ/kg-air |
+| expansion work | 320.9 kJ/kg-air |
+| heat delivered at 80/40 °C | 235.2 kJ/kg-air |
+| ambient heat drawn in | 0 |
+| electrical round-trip efficiency | **59.5 %** |
+| useful-exergy efficiency | 66.0 % |
+| useful-energy delivery ratio `J` | 1.030 |
+| net heat-pump COP (Carnot at 80/40 °C and 10 °C ambient: 6.7) | 1.08 |
+| coolant inventory | 2.55 kg / kg air |
+| cold / hot store | 33.3 °C / 82.1 °C |
+| stored air | 45.7 °C (as the last intercooler leaves it), 0.80 g/kg |
+| exhaust | -7.6 °C |
 
 **Against the literature.** The electrical efficiency lies inside the 52-60 %
 published for LTA-CAES concepts (Wolf and Budt 2014; 55.5 % for KompEx).
 
-**Where the compression heat goes.** Every joule of compression work ends up
-as heat; the only question is where. Here 522 kJ/kg reach the store through
-the intercoolers and 44 kJ/kg are lost in the cavern, where the air leaving
-the last intercooler at 48 °C cools to the 10 °C ground. The intercooler
-duties grow along the train (27 kJ/kg in the first, 64-78 in the others)
-because only the first stage draws air at ambient temperature. Every later
-stage draws air that its intercooler could cool only to about 48 °C, with a
-cold store at 35.5 °C and exchangers of NTU 3.4, so it compresses warmer air,
-does more work and releases more heat. The last intercooler carries the most
-(78 kJ/kg) and is given the most water on purpose: whatever it does not take
-becomes the cavern loss.
-
-**Why `J` exceeds one.** Eight expansion stages send the tail interheater
-returns below ambient; the dry cooler warms them back from the atmosphere
-(31 kJ/kg-air), and by the identity of
-[document 16](16_PERFORMANCE_LIMITS.md) that free heat is what lifts `J`
-above one.
+**Where the compression heat goes.** All of it reaches the store through the
+intercoolers: the cavern exchanges no net heat and the aftercooler is not
+needed, so the air is stored at the 45.7 °C the last intercooler leaves it at.
 
 **Sensitivity.**
 
 | variant | RTE | J | eta_ex |
 |---|---:|---:|---:|
-| reference (80/40 °C user) | 0.561 | 1.041 | 0.632 |
-| user return 45 °C | 0.561 | 1.042 | 0.636 |
-| pure water, 8 + 8 or 6 + 6 stages | infeasible: tail returns below freezing | | |
-| earlier ambitious preset (100 bar, 8 + 8, 0.89/0.90, 1 % drops, NTU 3, 70/40 °C) | 0.623 | 1.031 | 0.679 |
-| earlier conservative preset (60 bar, 6 + 4, 0.87/0.88, NTU 3, 75/40 °C, water) | 0.572 | 0.912 | 0.621 |
+| reference | 0.595 | 1.030 | 0.660 |
+| with the air aftercooled to the 10 °C ambient (the former model) | 0.561 | 1.041 | 0.632 |
+| winter day, -20 °C ambient, 100/40 °C user (last intercooler held at the 50 °C limit) | 0.558 | 0.982 | 0.669 |
+| same winter day, aftercooled to -20 °C (the former model) | 0.506 | 0.947 | 0.621 |
+
+**Why the aftercooler stays off.** Cooling the reference air to ambient
+before the cavern would throw away 44 kJ/kg, but the dry air would let the
+turbines expand to -27 °C and the plant take 31 kJ/kg back from the
+atmosphere while selling more heat: `J` would be 1.1 points higher, round-trip
+efficiency 3.4 points lower. The design keeps the aftercooler for when it is
+needed - the injection limit - not as a way to raise `J`. On the winter day
+the last intercooler holds the air at the 50 °C limit with extra water, and
+`J` stays below one: at -20 °C the atmosphere is the coldest stream in the
+plant, so there is no ambient heat to draw, and the undried exhaust cannot go
+much below its own frost point, about -22 °C.
+
+**What drier air is worth.** An upper bound, computed with the former
+aftercooler at the 50 °C limit: perfectly dry air (ambient RH 0.1 %) lets the
+turbines expand to -49 °C and draw 103 kJ/kg from the atmosphere, `J` = 1.20
+at RTE 0.47. Reaching even part of it needs the air dried at storage pressure
+against a sink colder than the ambient, and air dried before the cavern is
+partly re-wetted by the brine sump. A discharge-side dryer, cooled by the
+plant's own cold exhaust, is the candidate; it is not modelled yet.
 
 **Other concepts on these parameters.** The same site and machines do not
 close as AD-CAES: at 10 °C ambient and 100 bar, ambient reheat cannot keep
@@ -130,9 +139,10 @@ still runs through the older coupled cold-loop solver.
   to a constant value, a loss the model does not represent.
 - **Equal stage ratios.** Real LTA-CAES compressors raise the ratio in the last
   stages (Budt, Wolf and Span 2012, figure 12).
-- **Coolant properties.** The loop is modelled with the heat capacity of
-  water. A 30 % glycol mixture has about 10 % less, which would raise the
-  inventory the solver reports by about as much.
+- **Cavern thermal behaviour.** The cavern is taken as exchanging no net
+  heat, so the air leaves at the temperature it entered. Within a cycle the
+  air still swings by 15-20 K around the wall temperature (Huntorf: 28-45 °C)
+  and the rock returns 1-4 kJ/kg net (document 02); neither is represented.
 - **Expander outlet floor.** The model holds every turbine outlet at 10 °C, or
   at the frost point plus 10 K. Vendors accept 0 °C as a hard limit.
 - **The AD-CAES ambient exchanger** (`ambient_heat_exchanger_ntu`) was not

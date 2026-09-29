@@ -13,7 +13,8 @@ classes. Results compare thermodynamic concepts and feasibility boundaries;
 they are not an off-design map of one fixed set of hardware.
 
 The solver follows one kilogram of **dry** air through steady-flow components. The
-cavern is a fixed-pressure, ambient-rock-temperature boundary. There is no time
+cavern is a fixed-pressure boundary that exchanges no net heat (see "The
+cavern" below). There is no time
 domain, power rating, tank geometry, component cost, or water-pump model.
 
 For the plant-level definition of AD-CAES, LTA-CAES, and LTAHP-CAES,
@@ -24,13 +25,15 @@ Dry air means humidity remains outside the **energy and exergy balance**: no
 latent heat distorts the cooling curves and no two-phase mass changes the
 turbomachinery work. A separate moisture post-processor now carries the
 configured ambient humidity through the calculated cooler outlets, assumes an
-ideal liquid separator after each charge intercooler and the final aftercooler,
+ideal liquid separator after each charge intercooler,
 and draws the resulting pressure dew/frost boundary. It is a plant-risk
 diagnostic, not a coupled humid-air property model. The wet-rated expander may
 cross a liquid dew point: its operating minimum is +10 degC in the liquid
-region and local frost point plus 10 K in dry sub-zero operation. A 0.1 wt%
-possible-condensate screen bounds only the discharge-side dry-air
-approximation; omitted charge-side latent heat is a separate limitation. Local blade-wall
+region and local frost point plus 10 K in dry sub-zero operation. The stored
+humidity is limited by the expander's published liquid capacity; a 0.1 wt%
+possible-condensate level is reported as the point where the dry-air
+approximation stops being accurate, not enforced; omitted charge-side latent
+heat is a separate limitation. Local blade-wall
 temperatures, finite separator efficiency, droplet transport and cavern
 rehumidification remain outside the solver. See
 [the unified moisture and wet-expander basis](06_MOISTURE_DEW_POINT_AND_WET_EXPANSION.md).
@@ -270,6 +273,79 @@ different branch temperatures into one tank state is explicitly reported as
 mixed two-tank model; it does not represent thermoclines or
 temperature-selective tank manifolds.
 
+## The cavern
+
+**The cavern exchanges no net heat with the air.** The air is stored at the
+temperature it leaves the last intercooler, and the discharge starts from it.
+There is no cavern temperature to set.
+
+Why, although the rock at depth is warm (a cavern held at 100 bar sits
+roughly 600-950 m deep, where the salt is at 30-45 °C): the wall acts as a
+regenerator, not as a source. Only a skin of salt under a metre thick is
+heated during the charge and returns that heat during the discharge. Net
+heat can reach the air only by conduction from the undisturbed rock, which
+is slow; in cyclic operation the wall therefore settles close to the
+injection temperature and the rock can add or remove only a few kJ per kg of
+air.
+
+This was computed rather than assumed.
+[`scripts/cavern_heat_exchange.py`](../scripts/cavern_heat_exchange.py)
+solves well-mixed air in a spherical salt cavern exchanging heat with the
+wall (`h A`), and 1-D radial conduction in the salt out to 300 m (k = 5.2
+W/(m K)), over 20 years of daily cycles (charge 8 h, dwell 4 h, discharge
+8 h, dwell 4 h), with the virgin rock at 35.6 °C:
+
+| case | withdrawn air, year 1 | year 20 | net rock heat, year 20 |
+|---|---:|---:|---:|
+| 500 000 m3, 185 kg/s, air injected at 20 °C, h = 15 W/(m2 K) | 22.8 °C | 21.2 °C | +1.2 kJ/kg |
+| same, h = 5 or 50 W/(m2 K) | 22.7-22.8 °C | 21.2 °C | +1.2 kJ/kg |
+| same, a small plant (50 kg/s) | 27.5 °C | 23.8 °C | +3.9 kJ/kg |
+| Huntorf-size cavern (150 000 m3), 108 kg/s | 22.2 °C | 21.1 °C | +1.1 kJ/kg |
+| 500 000 m3, 185 kg/s, air injected at 46 °C | 44.0 °C | 45.1 °C | -0.9 kJ/kg |
+
+Assuming the air settles to the virgin rock temperature would have credited
+15.7 kJ/kg in the first case; the cavern really returns about a tenth of it,
+and less every year. The residual 1-4 kJ/kg is neglected. Heat to or from the
+rock is also bounded by an order-of-magnitude argument: steady conduction to
+a sphere of radius `R` is `4 pi k R` per kelvin, about 3 kW/K for a 500 000 m3
+cavern, against a plant that cycles 5 million kg of air a day.
+
+**Aftercooler only when needed.** The air goes to the cavern exactly as the
+last intercooler leaves it. When that air would be warmer than
+`maximum_injection_temperature_c` (default 50 °C, as at Huntorf), the last
+intercooler is first given more water until it is not; only if even all the
+water the other branches can spare is not enough does an aftercooler take the
+air down to the limit against the atmosphere, throwing that heat away. In the
+reference plant (100 bar, 8+8 stages) the last intercooler leaves the air at
+45.7 °C and no aftercooler works; with few stages (4+4 at 85.8 bar) the
+compressor outlets are so hot that it must. The electricity-first solver
+keeps its original design point, the air cooled to ambient before the cavern.
+
+**Humidity limit: the machine's, not the model's.** The stored air may be as
+wet as the wet-rated radial expander accepts: 1 wt% liquid at suction (the
+separator leaves none) and 35 wt% at discharge for the [Baker Hughes turboexpander](https://www.bakerhughes.com/expanders/turboexpander-compressors) family, checked
+against the worst case in which every gram of remaining vapour condenses.
+Saturated air at 60 °C and 100 bar would give about 0.2 wt%, so this limit
+does not bind in practice. The dry-air energy balance neglects the latent
+heat of that condensate; above 0.1 wt% the neglect is no longer negligible
+(about 2.5 kJ/kg of stream per 0.1 wt%), which the report states but no
+longer enforces.
+
+**Brine.** A salt cavern keeps a brine sump, which re-humidifies the stored
+air toward equilibrium with saturated brine (about 75 % relative humidity;
+see the thermo-moisture model of the Huntorf cavern in
+[Applied Energy 2024](https://www.sciencedirect.com/science/article/abs/pii/S0306261924017860)).
+Air saturated in the last separator is slightly dried by it, so the model's
+stored humidity is conservative. Air dried below that equilibrium before
+injection would be re-wetted: drying for the turbines belongs downstream of
+the cavern, not before it.
+
+History: until 2026-09-28 the stored air was always cooled to the ambient
+temperature, and that cooling was attributed to the cavern. A version that
+cooled it to the virgin rock temperature instead was replaced the next day
+by this adiabatic cavern, after the calculation above. The aftercooler
+now works only when the last intercooler cannot hold the injection limit.
+
 ## Direct coolant temperature limits
 
 The coolant loop uses two explicit limits instead of a pressure/saturation
@@ -354,7 +430,7 @@ UA_tank,normalized = UA_tank,physical / stored_air_mass
 ## Wet-rated expander outlet constraint
 
 The former configurable 5 °C floor is removed. The vapour content guaranteed
-by the final charge aftercooler and ideal separator is held fixed during
+by the last charge cooler and its ideal separator is held fixed during
 discharge. For every stage:
 
 ```text
@@ -520,9 +596,10 @@ than optimized. See
 
 - **dry-air thermodynamics with a humidity diagnostic**: calculated
   cooler/separator condensation and PDP/frost overlays do not yet feed latent
-  heat, water mass, droplet carryover or real icing back into the cycle; a
-  0.1 wt% maximum-possible-condensate screen limits the discharge-side
-  approximation; charge-side latent heat remains separately omitted;
+  heat, water mass, droplet carryover or real icing back into the cycle;
+  above 0.1 wt% maximum-possible condensate the discharge-side approximation
+  loses accuracy (reported, not enforced); charge-side latent heat remains
+  separately omitted;
 - the coolant has constant specific heat and direct temperature limits, but
   blend-dependent properties, phase behaviour, pressure-dependent liquid
   enthalpy and pump work are not modelled;

@@ -144,7 +144,10 @@ def test_charge_moisture_balance_closes_and_storage_boundary_varies_with_pressur
         moisture.stored_air_water_vapor_kg_per_kg_dry_air,
     ) - 273.15
 
-    assert storage_pdp_c == pytest.approx(15.0, abs=0.02)
+    # No aftercooler: the stored air is saturated at the last cooler's outlet,
+    # so its pressure dew point is that temperature.
+    last_cooler = [p for p in result.charging.processes if p.kind == "intercooling"][-1]
+    assert storage_pdp_c == pytest.approx(last_cooler.outlet.temperature_c, abs=0.02)
     # The claim is that the boundary FALLS with pressure, not which side of
     # freezing it lands on: with the enhancement factor applied, the first
     # stage of the default train now stays in the liquid-permitted region,

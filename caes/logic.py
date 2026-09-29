@@ -67,6 +67,13 @@ FIELD_RULES: dict[str, FieldRule] = {
              "does not add latent heat to the dry-air energy balance.",
     ),
     "storage_pressure_bar": FieldRule("Storage pressure", BOUNDARY_GROUP, "bar"),
+    "maximum_injection_temperature_c": FieldRule(
+        "Maximum cavern injection temperature", BOUNDARY_GROUP, "°C",
+        help="The cavern exchanges no net heat, so the air is stored at the "
+             "temperature it leaves the last intercooler. Warmer air is first "
+             "cooled to this limit against the atmosphere (salt caverns: about "
+             "50 °C, Huntorf).",
+    ),
     "compressor_stages": FieldRule("Compressor stages", MACHINERY_GROUP),
     "expander_stages": FieldRule("Expander stages", MACHINERY_GROUP),
     "compressor_efficiency": FieldRule("Compressor isentropic efficiency", MACHINERY_GROUP, "0-1"),

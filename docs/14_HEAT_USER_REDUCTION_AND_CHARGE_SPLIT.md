@@ -47,13 +47,17 @@ is one evaluation, not a root. Measured at the reference plant: trial `T_c`
 from 5 to 55 °C produced the same `T_c = 37.4726 °C` at `R = 1.5`, and the
 same `41.4823 °C` at `R = 2.0`, identical to the printed digits.
 
-**Fact 3 - the humidity is set at the cavern (identity, with one exception).**
-The charge ends with the air cooled to ambient at storage pressure, so `w` is
-the saturation humidity there unless an intercooler outlet is colder still,
-which needs a cold tank well below ambient. The solver checks this instead of
-assuming it: humidity -> ladder -> `T_c` -> charge -> humidity is repeated
-until `w` is unchanged, and in every measured case it is unchanged on the first
-pass.
+**Fact 3 - the stored air closes a short, weak loop.** The cavern exchanges
+no net heat (document 02), so the stored air is the air leaving the last
+intercooler (the aftercooler works only when that cannot hold the injection
+limit): its temperature
+`T_s` and humidity `w` follow the cold tank, and the ladder depends on them.
+The chain `(T_s, w)` -> ladder -> `T_c` -> charge -> `(T_s, w)` is repeated
+until it closes to 2 mK. It contracts fast: on the reference plant a first
+guess 6 K off is corrected to 0.01 K in one pass. When it does not contract -
+perfectly dry air needs so little turbine reheat that each degree of stored
+air returns more than a degree - the point is refused as having no steady
+state, unless the last intercooler is made to hold the injection limit.
 
 Consequence: at fixed `R` the discharge side, the cold tank and the stored
 humidity are all fixed. The only remaining freedom is how the charge train
@@ -70,7 +74,9 @@ W_exp + Q_user = W_comp + Q_amb + (h0 - h_exh) - Q_ac - L_tank
 W_comp   compression work                 Q_amb   ambient heat taken by E-303
 W_exp    expansion work                   h0      air enthalpy at intake
 Q_user   heat sold through E-302          h_exh   air enthalpy at exhaust
-Q_ac     aftercooler rejection: air leaving the last intercooler cools to T0 in the cavern
+Q_ac     heat taken from the air between the last intercooler and the cavern: zero unless
+         the aftercooler is needed (the tables below were measured with the former
+         ambient aftercooler)
 L_tank   hot- and cold-tank standing losses
 ```
 
@@ -89,10 +95,13 @@ Two consequences:
   did not bind in any of them.
 - **J < 1 is not caused by the exhaust.** Under minimum-duty dispatch the
   turbine exhaust sits on the anti-icing floor below 0 °C, so `h0 - h_exh` is
-  a gain. A delivery ratio below one comes from the aftercooler, when the last
-  intercooler releases hot air, often together with an idle E-303 (all returns
-  above ambient). Measured at each case's optimum with the capacity-matched
-  split, in kJ/kg-air:
+  a gain. In the former model, which cooled the stored air to ambient, a
+  delivery ratio below one came from that aftercooler, when the last
+  intercooler released hot air, often together with an idle E-303 (all returns
+  above ambient). The aftercooler now works only when the last intercooler
+  cannot hold the injection limit; otherwise below one can only come from tank
+  losses or an exhaust warmer than the intake, on cold days. Measured with the former model at each case's optimum with the
+  capacity-matched split, in kJ/kg-air:
 
 | case | J | Q_amb | h0 - h_exh | Q_ac (air leaving last cooler) | T_c |
 |---|---:|---:|---:|---:|---:|
@@ -164,8 +173,9 @@ objective ranks the inventory.** Section 6 states what this leaves open.
 
 The branches are not alike:
 
-- the **last** branch's air goes to the aftercooler, so its heat is either
-  stored or thrown away (`Q_ac`);
+- the **last** branch's air goes straight to the cavern: it sets the stored
+  air the turbines start from, and must respect the injection limit (in the
+  former model its heat was either stored or thrown away, `Q_ac`);
 - the **first** branch cools air compressed from ambient, the coldest outlet
   in the train, so its water returns coldest and dilutes the grade of the
   store;
@@ -203,6 +213,16 @@ charge train is re-solved (about 2 ms a trial). The coolant ceiling is a hard
 constraint. The starved end of each share is always evaluated explicitly,
 because the optimum is often exactly there.
 
+**A split moves the stored air.** Changing the last branch's water changes
+the last intercooler's outlet, hence the stored air and the ladder. The split
+is therefore optimized against the capacity-matched design, then closed on its
+own stored air (Fact 3) and kept only if the closed plant ranks better. When
+the stored air is too wet for the dry-air expander model, the last branch is
+given the least extra water that dries it enough, found by stepping out from
+the capacity-matched split and bisecting: the stored humidity is U-shaped in
+that share, because past a point the starved middle branches heat the last
+compressor's inlet faster than the extra water cools its outlet.
+
 **Electricity-first dispatch (LTA, and LTAHP with `max_electric_efficiency`)
 is different and is left unchanged.** There is no user, all heat goes back to
 the turbines, and the cold tank depends on the hot store, so none of Facts 1-2
@@ -221,6 +241,11 @@ climb to the best cell with the exergy-optimal split
 bisect any adjacent constraint boundary to 0.02 % in R
 if the objective still rises into that boundary: the boundary is the optimum
 otherwise: Brent on the bracket
+every point closes its stored air (Fact 3); a point whose stored air is too
+    wet for the expanders is retried with the last branch drying it
+a point whose air would leave the last intercooler above the injection
+    limit is retried with that limit as a ceiling on the last branch, and
+    only if that fails with an aftercooler to the limit
 ```
 
 The gap bisection is what the named refusals buy. A feasible window can only
