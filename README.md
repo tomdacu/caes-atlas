@@ -215,3 +215,11 @@ fingerprints, not only wall-clock time.
 ## Licence
 
 MIT, see [LICENSE](LICENSE).
+
+## Author and contacts
+
+Tommaso D'Acunzio — [GitHub](https://github.com/tomdacu) —
+[LinkedIn](https://www.linkedin.com/in/tommaso-d-acunzio-344876185/) —
+<tommaso@dacunzio.it>
+
+If you use this project, or you are interested in a collaboration, write to me.
