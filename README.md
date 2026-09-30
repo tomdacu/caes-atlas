@@ -25,7 +25,7 @@ basis:
 | concept | fate of the compression heat | products |
 |---|---|---|
 | **AD-CAES**, ambient diabatic | rejected to the atmosphere; the expanding air is reheated from ambient and throttled where needed | electricity |
-| **LTA-CAES**, low-temperature adiabatic | stored in a pressurized two-tank water loop below about 200 Â°C and returned to the expansion train | electricity |
+| **LTA-CAES**, low-temperature adiabatic | stored in a pressurized two-tank water loop below about 200 °C and returned to the expansion train | electricity |
 | **LTAHP-CAES**, low-temperature adiabatic heat and power | stored as in LTA; the high-temperature band is exported to an external heat user and the turbines receive only their minimum moisture-safe duty | electricity and heat |
 
 The heat user is generic: a supply temperature, a return temperature and an
@@ -94,7 +94,7 @@ commercially available machinery, with typical published component values
 cavern that exchanges no net heat with the air, eight integrally geared
 compression and eight expansion stages at 0.86 / 0.85 isentropic efficiency,
 1.5 % pressure loss per exchanger, air/water exchangers of NTU 3.4 (the top of
-published designs), a two-tank liquid store and an 80/40 Â°C
+published designs), a two-tank liquid store and an 80/40 °C
 district-heating user at a North-German site.
 
 | quantity | per kg of air |
@@ -105,7 +105,7 @@ district-heating user at a North-German site.
 | electrical round-trip efficiency | 59.5 % |
 | useful-energy delivery ratio `J` | 103.0 % |
 | useful-exergy efficiency | 66.0 % |
-| cold / hot store | 33 Â°C / 82 Â°C |
+| cold / hot store | 33 °C / 82 °C |
 
 The round-trip efficiency lies inside the 52-60 % published for LTA-CAES
 concepts. The cavern is modelled as exchanging no net heat: a 20-year
@@ -119,7 +119,7 @@ injection limit.
 
 The numerical baseline used throughout the documentation and the test suite:
 LTAHP-CAES at 85.8 bar, 6 + 6 stages, isentropic efficiencies 0.85, exchanger
-NTU 5, heat user at 80/45 Â°C, ambient 15 Â°C:
+NTU 5, heat user at 80/45 °C, ambient 15 °C:
 
 | quantity | per kg of air |
 |---|---:|
@@ -131,7 +131,7 @@ NTU 5, heat user at 80/45 Â°C, ambient 15 Â°C:
 | useful-energy delivery ratio `J` | 107.5 % |
 | useful-exergy efficiency | 62.5 % |
 | net heat-pump COP (Carnot 7.1) | 1.17 |
-| cold / hot store | 39 Â°C / 112 Â°C |
+| cold / hot store | 39 °C / 112 °C |
 | exergy balance residual | < 0.001 J |
 
 ## Method
@@ -145,7 +145,7 @@ NTU 5, heat user at 80/45 Â°C, ambient 15 Â°C:
   capacity evaluated at the exchanger mean temperature. A fixed NTU denotes a
   performance class: every candidate is resized as `UA = NTU C_min`.
 - **Moisture.** Charge-side condensation with ideal separators, and a
-  wet-expander envelope on every turbine outlet (10 Â°C where liquid can form,
+  wet-expander envelope on every turbine outlet (10 °C where liquid can form,
   otherwise the local frost point plus 10 K).
 - **Heat-user topology.** The stored inventory first crosses the heat-user
   exchanger, then a counter-current staged-extraction exchanger that feeds each
@@ -221,8 +221,8 @@ MIT, see [LICENSE](LICENSE).
 
 ## Author and contacts
 
-Tommaso D'Acunzio â€” [GitHub](https://github.com/tomdacu) â€”
-[LinkedIn](https://www.linkedin.com/in/tommaso-d-acunzio-344876185/) â€”
+Tommaso D'Acunzio — [GitHub](https://github.com/tomdacu) —
+[LinkedIn](https://www.linkedin.com/in/tommaso-d-acunzio-344876185/) —
 <tommaso@dacunzio.it>
 
 If you use this project, or you are interested in a collaboration, write to me.
