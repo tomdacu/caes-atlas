@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "CAES Atlas: thermodynamic screening of combustion-free compressed-air energy storage"
+abstract: >-
+  Screening tool for compressed-air energy storage concepts that use neither fuel nor a
+  high-temperature thermal store. Ambient-diabatic, low-temperature adiabatic and
+  heat-and-power plants are solved as closed charge-discharge cycles on a
+  per-kilogram-of-air basis, with real-fluid properties, finite-effectiveness heat
+  exchangers, a moisture-safe expansion envelope and a complete exergy balance.
+authors:
+  - family-names: "D'Acunzio"
+    given-names: "Tommaso"
+    orcid: "https://orcid.org/0009-0006-9081-1852"
+license: MIT
+repository-code: "https://github.com/tomdacu/caes-atlas"
+keywords:
+  - compressed-air energy storage
+  - CAES
+  - energy storage
+  - exergy analysis
+  - thermodynamics
+  - district heating
+type: software
